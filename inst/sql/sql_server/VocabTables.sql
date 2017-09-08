@@ -1,0 +1,167 @@
+/* #     #               #     # ######          ######  ######  #     #    
+   #  #  # ###### #####  ##   ## #     #         #     # #     # ##   ##    
+   #  #  # #      #    # # # # # #     #         #     # #     # # # # #    
+   #  #  # #####  #####  #  #  # #     #         ######  ######  #  #  #    
+   #  #  # #      #    # #     # #     #         #       #     # #     #    
+   #  #  # #      #    # #     # #     #         #       #     # #     #    
+    ## ##  ###### #####  #     # ######          #       ######  #     #    
+                                       #######                            
+  #####  ######  #     #    ######                                        
+ #     # #     # ##   ##    #     # #    # # #      #####  ###### #####   
+ #       #     # # # # #    #     # #    # # #      #    # #      #    #  
+ #       #     # #  #  #    ######  #    # # #      #    # #####  #    #  
+ #       #     # #     #    #     # #    # # #      #    # #      #####   
+ #     # #     # #     #    #     # #    # # #      #    # #      #   #   
+  #####  ######  #     #    ######   ####  # ###### #####  ###### #    #
+
+  AUTHOR: Clair Blacketer and Erica Voss
+  DATE: 6/1/2017
+  PURPOSE: To create an OMOP CDM builder for the WebMD_PBM data cut from HealthVerity that
+			can be used by the delivering entity when requesting future datasets
+  CDM VERSION: 5.0.1
+  VOCABULARY VERSION: 20161218
+
+	STEP 1 - Create a source to standard vocabulary temp table and source to source vocabulary 
+			temp table to use later when mapping into the STEM table. */
+			
+  IF OBJECT_ID('@cdm_schema.SOURCE_TO_STANDARD', 'U') IS NOT NULL DROP TABLE @cdm_schema.SOURCE_TO_STANDARD
+CREATE TABLE @cdm_schema.SOURCE_TO_STANDARD
+WITH (
+	CLUSTERED COLUMNSTORE INDEX,
+	DISTRIBUTION = HASH(TARGET_CONCEPT_ID)
+	)
+AS
+
+WITH CTE_VOCAB_SOURCE_TO_STANDARD AS (
+	SELECT c.concept_code AS SOURCE_CODE, c.concept_id AS SOURCE_CONCEPT_ID, c.concept_name AS SOURCE_CODE_DESCRIPTION, 
+			c.vocabulary_id AS SOURCE_VOCABULARY_ID, c.domain_id AS SOURCE_DOMAIN_ID, c.CONCEPT_CLASS_ID AS SOURCE_CONCEPT_CLASS_ID, 
+			c.VALID_START_DATE AS SOURCE_VALID_START_DATE, c.VALID_END_DATE AS SOURCE_VALID_END_DATE, c.INVALID_REASON AS SOURCE_INVALID_REASON, 
+			c1.concept_id AS TARGET_CONCEPT_ID, c1.concept_name AS TARGET_CONCEPT_NAME, c1.VOCABULARY_ID AS TARGET_VOCABUALRY_ID, 
+			c1.domain_id AS TARGET_DOMAIN_ID, c1.concept_class_id AS TARGET_CONCEPT_CLASS_ID,c1.INVALID_REASON AS TARGET_INVALID_REASON, 
+			c1.standard_concept AS TARGET_STANDARD_CONCEPT
+	FROM @vocab_schema.CONCEPT C
+		JOIN @vocab_schema.CONCEPT_RELATIONSHIP CR
+			ON C.CONCEPT_ID = CR.CONCEPT_ID_1
+			AND CR.invalid_reason IS NULL
+			AND lower(cr.relationship_id) = 'maps to'
+		JOIN @vocab_schema.CONCEPT C1
+			ON CR.CONCEPT_ID_2 = C1.CONCEPT_ID
+			AND C1.INVALID_REASON IS NULL
+	UNION ALL
+	SELECT source_code, SOURCE_CONCEPT_ID, SOURCE_CODE_DESCRIPTION, source_vocabulary_id, c1.domain_id AS SOURCE_DOMAIN_ID, 
+			c2.CONCEPT_CLASS_ID AS SOURCE_CONCEPT_CLASS_ID, c1.VALID_START_DATE AS SOURCE_VALID_START_DATE, 
+			c1.VALID_END_DATE AS SOURCE_VALID_END_DATE, stcm.INVALID_REASON AS SOURCE_INVALID_REASON,
+			target_concept_id, c2.CONCEPT_NAME AS TARGET_CONCEPT_NAME, target_vocabulary_id, c2.domain_id AS TARGET_DOMAIN_ID, 
+			c2.concept_class_id AS TARGET_CONCEPT_CLASS_ID,c2.INVALID_REASON AS TARGET_INVALID_REASON, 
+			c2.standard_concept AS TARGET_STANDARD_CONCEPT
+	FROM @vocab_schema.source_to_concept_map stcm
+		LEFT OUTER JOIN @vocab_schema.CONCEPT c1
+			ON c1.concept_id = stcm.source_concept_id
+		LEFT OUTER JOIN @vocab_schema.CONCEPT c2
+			ON c2.CONCEPT_ID = stcm.target_concept_id
+	WHERE stcm.INVALID_REASON IS NULL
+) 
+
+SELECT REPLACE(SOURCE_CODE,'.','') AS SOURCE_CODE_NO_DECIMAL, 'ICD9_DIAGNOSIS' AS VOCAB_LABEL, STAND.*
+FROM CTE_VOCAB_SOURCE_TO_STANDARD STAND
+WHERE SOURCE_VOCABULARY_ID IN ('ICD9CM')
+AND TARGET_STANDARD_CONCEPT IS NOT NULL
+AND TARGET_INVALID_REASON IS NULL
+
+UNION ALL
+
+SELECT REPLACE(SOURCE_CODE,'.','') AS SOURCE_CODE_NO_DECIMAL, 'ICD10_DIAGNOSIS' AS VOCAB_LABEL, STAND.*
+FROM CTE_VOCAB_SOURCE_TO_STANDARD STAND
+WHERE SOURCE_VOCABULARY_ID IN ('ICD10CM')
+AND TARGET_STANDARD_CONCEPT IS NOT NULL
+AND TARGET_INVALID_REASON IS NULL
+
+UNION ALL 
+
+SELECT REPLACE(SOURCE_CODE,'.','') AS SOURCE_CODE_NO_DECIMAL, 'PROCEDURES' AS VOCAB_LABEL, STAND.*
+FROM CTE_VOCAB_SOURCE_TO_STANDARD STAND
+WHERE SOURCE_VOCABULARY_ID IN ('ICD9Proc','HCPCS','CPT4', 'ICD10PCS')
+AND TARGET_CONCEPT_CLASS_ID NOT IN ('HCPCS Modifier','CPT4 Modifier','CPT4 Hierarchy', 'ICD10PCS Hierarchy')
+AND TARGET_STANDARD_CONCEPT IS NOT NULL
+AND TARGET_INVALID_REASON IS NULL
+
+UNION ALL 
+
+SELECT REPLACE(SOURCE_CODE,'.','') AS SOURCE_CODE_NO_DECIMAL, 'PROCEDURE_MODIFIERS' AS VOCAB_LABEL, STAND.*
+FROM CTE_VOCAB_SOURCE_TO_STANDARD STAND
+WHERE TARGET_CONCEPT_CLASS_ID IN ('HCPCS Modifier','CPT4 Modifier')
+AND TARGET_STANDARD_CONCEPT IS NOT NULL
+AND TARGET_INVALID_REASON IS NULL
+
+UNION ALL 
+
+SELECT REPLACE(SOURCE_CODE,'.','') AS SOURCE_CODE_NO_DECIMAL, 'DRUGS' AS VOCAB_LABEL, STAND.*
+FROM CTE_VOCAB_SOURCE_TO_STANDARD STAND
+WHERE SOURCE_VOCABULARY_ID IN ('NDC')
+AND TARGET_STANDARD_CONCEPT IS NOT NULL
+AND TARGET_INVALID_REASON IS NULL 
+
+
+IF OBJECT_ID('@cdm_schema.SOURCE_TO_SOURCE', 'U') IS NOT NULL DROP TABLE @cdm_schema.SOURCE_TO_SOURCE
+CREATE TABLE @cdm_schema.SOURCE_TO_SOURCE
+WITH (
+	CLUSTERED COLUMNSTORE INDEX,
+	DISTRIBUTION = HASH(SOURCE_CONCEPT_ID)
+	)
+AS
+
+WITH CTE_VOCAB_SOURCE_TO_SOURCE AS (
+	SELECT c.concept_code AS SOURCE_CODE, c.concept_id AS SOURCE_CONCEPT_ID, c.CONCEPT_NAME AS SOURCE_CODE_DESCRIPTION, 
+		c.vocabulary_id AS SOURCE_VOCABULARY_ID, c.domain_id AS SOURCE_DOMAIN_ID, c.concept_class_id AS SOURCE_CONCEPT_CLASS_ID, 
+		c.VALID_START_DATE AS SOURCE_VALID_START_DATE, c.VALID_END_DATE AS SOURCE_VALID_END_DATE, c.invalid_reason AS SOURCE_INVALID_REASON, 
+		c.concept_ID as TARGET_CONCEPT_ID, c.concept_name AS TARGET_CONCEPT_NAME, c.vocabulary_id AS TARGET_VOCABULARY_ID, 
+		c.domain_id AS TARGET_DOMAIN_ID, c.concept_class_id AS TARGET_CONCEPT_CLASS_ID, c.INVALID_REASON AS TARGET_INVALID_REASON, 
+		c.STANDARD_CONCEPT AS TARGET_STANDARD_CONCEPT
+       FROM @vocab_schema.CONCEPT c
+    UNION ALL
+	SELECT source_code, SOURCE_CONCEPT_ID, SOURCE_CODE_DESCRIPTION, source_vocabulary_id, c1.domain_id AS SOURCE_DOMAIN_ID, 
+		c2.CONCEPT_CLASS_ID AS SOURCE_CONCEPT_CLASS_ID, c1.VALID_START_DATE AS SOURCE_VALID_START_DATE, 
+		c1.VALID_END_DATE AS SOURCE_VALID_END_DATE,stcm.INVALID_REASON AS SOURCE_INVALID_REASON, target_concept_id, 
+		c2.CONCEPT_NAME AS TARGET_CONCEPT_NAME, target_vocabulary_id, c2.domain_id AS TARGET_DOMAIN_ID, 
+		c2.concept_class_id AS TARGET_CONCEPT_CLASS_ID, c2.INVALID_REASON AS TARGET_INVALID_REASON, 
+		c2.standard_concept AS TARGET_STANDARD_CONCEPT
+	FROM @vocab_schema.source_to_concept_map stcm
+		LEFT OUTER JOIN @vocab_schema.CONCEPT c1
+			ON c1.concept_id = stcm.source_concept_id
+		LEFT OUTER JOIN @vocab_schema.CONCEPT c2
+			ON c2.CONCEPT_ID = stcm.target_concept_id
+	WHERE stcm.INVALID_REASON IS NULL
+)
+
+SELECT REPLACE(SOURCE_CODE,'.','') AS SOURCE_CODE_NO_DECIMAL, 'ICD9_DIAGNOSIS' AS VOCAB_LABEL, SOURCE.*
+FROM CTE_VOCAB_SOURCE_TO_SOURCE SOURCE
+WHERE SOURCE_VOCABULARY_ID IN ('ICD9CM')
+AND TARGET_VOCABULARY_ID IN ('ICD9CM')
+
+UNION ALL
+
+SELECT REPLACE(SOURCE_CODE,'.','') AS SOURCE_CODE_NO_DECIMAL, 'ICD10_DIAGNOSIS' AS VOCAB_LABEL, SOURCE.*
+FROM CTE_VOCAB_SOURCE_TO_SOURCE SOURCE
+WHERE SOURCE_VOCABULARY_ID IN ('ICD10CM')
+AND TARGET_VOCABULARY_ID IN ('ICD10CM')
+
+UNION ALL 
+
+SELECT REPLACE(SOURCE_CODE,'.','') AS SOURCE_CODE_NO_DECIMAL, 'PROCEDURES' AS VOCAB_LABEL, SOURCE.*
+FROM CTE_VOCAB_SOURCE_TO_SOURCE SOURCE
+WHERE SOURCE_VOCABULARY_ID IN ('ICD9Proc','HCPCS','CPT4', 'ICD10PCS')
+AND TARGET_VOCABULARY_ID IN ('ICD9Proc','HCPCS','CPT4', 'ICD10PCS')
+AND TARGET_CONCEPT_CLASS_ID NOT IN ('HCPCS Modifier','CPT4 Modifier', 'CPT4 Hierarchy', 'ICD10PCS Hierarchy')
+
+UNION ALL 
+
+SELECT REPLACE(SOURCE_CODE,'.','') AS SOURCE_CODE_NO_DECIMAL, 'PROCEDURE_MODIFIERS' AS VOCAB_LABEL, SOURCE.*
+FROM CTE_VOCAB_SOURCE_TO_SOURCE SOURCE
+WHERE TARGET_CONCEPT_CLASS_ID IN ('HCPCS Modifier','CPT4 Modifier')
+
+UNION ALL 
+
+SELECT REPLACE(SOURCE_CODE,'.','') AS SOURCE_CODE_NO_DECIMAL, 'DRUGS' AS VOCAB_LABEL, SOURCE.*
+FROM CTE_VOCAB_SOURCE_TO_SOURCE SOURCE
+WHERE SOURCE_VOCABULARY_ID IN ('NDC')
+AND TARGET_VOCABULARY_ID IN ('NDC')

@@ -1,0 +1,10 @@
+/*STEP 4 Create STEM table*/
+
+IF OBJECT_ID('@cdm_schema.STEM') IS NOT NULL DROP TABLE @cdm_schema.[STEM]
+CREATE TABLE @cdm_schema.[STEM]
+WITH (
+	CLUSTERED COLUMNSTORE INDEX,
+	DISTRIBUTION = HASH(ID)
+) AS
+  SELECT *
+  FROM (
