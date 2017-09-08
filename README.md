@@ -1,5 +1,7 @@
 # ETL and builder for HealthVerity data
-**Note: This builder was written for a data cut containing data from an open claims datasource and a closed claims datasource and is still under development.** 
+*Note: This builder was written for a data cut containing data from an open claims datasource and a closed claims datasource and is still under development.*
+
+* The ETL document in located in the docs folder
 
 ## Dependencies
 This package uses the [DatabaseConnector](https://github.com/OHDSI/DatabaseConnector) package and the [SqlRender](https://github.com/OHDSI/SqlRender) package. It also requires an instance of the [OMOP vocabulary](http://athena.ohdsi.org/).
