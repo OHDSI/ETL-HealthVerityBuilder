@@ -14,5 +14,14 @@ The file `extras/TestCode.R` shows an example of how to run this builder.
 4. Run the `getIteraterNum()` function. This will find how many chunks the code has to run
 5. Run the `createVocabTables()` function to create the vocabulary mapping tables.
 6. Run the `createAllLookupTables()` function to create the LOCATION, PERSON, CARE_SITE and PROVIDER tables
-7. Run the `createObservationPeriodTable()` function to create the OBSERVATION_PERIOD table. If createWebmdObsPeriod is set to TRUE then a separate OBSERVATION_PERIOD table will be created just for the time period the patients were in WebMD
-8. 
+7. Run the `createObservationPeriodTable()` function to create the OBSERVATION_PERIOD table. If `createWebmdObsPeriod` is set to TRUE then a separate OBSERVATION_PERIOD table will be created just for the time period the patients were in WebMD
+8. Run the `createPayerPlanPeriodTable()` function to create the PAYER_PLAN_PERIOD table.
+9. Run the `createVisitOccurrenceTable()` function to create the VISIT_OCCURRENCE table. Be sure to set `runAllParts` to TRUE
+10. Run the `createSTEMTable()` function to create the STEM table
+11. Run the `createEventTables()` function to create the following tables from the STEM table:
+   CONDITION_OCCURRENCE,
+   PROCEDURE_OCCURRENCE,
+   DRUG_EXPOSURE,
+   DEVICE_EXPOSURE,
+   MEASUREMENT,
+   OBSERVATION
